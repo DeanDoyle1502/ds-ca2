@@ -11,7 +11,7 @@ import {
 const s3 = new S3Client();
 
 export const handler: SQSHandler = async (event) => {
-  console.log("Event ", JSON.stringify(event));
+  console.log("Event recieved ", JSON.stringify(event, null, 2));
   for (const record of event.Records) {
     const recordBody = JSON.parse(record.body);        // Parse SQS message
     const snsMessage = JSON.parse(recordBody.Message); // Parse SNS message
