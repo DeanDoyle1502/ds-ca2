@@ -31,18 +31,21 @@ export class EDAAppStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
       // Integration infrastructure
+      const badImage = new sqs.Queue(this, "dead-image", {
+        retentionPeriod: cdk.Duration.seconds(60)
+      });
 
       const imageProcessQueue = new sqs.Queue(this, "img-created-queue", {
         receiveMessageWaitTime: cdk.Duration.seconds(10),
+        deadLetterQueue: {queue:badImage, maxReceiveCount:1}
       });
-
-      const mailerQ = new sqs.Queue(this, "mailer-queue", {
-        receiveMessageWaitTime: cdk.Duration.seconds(10),
-      });
+      
 
       const newImageTopic = new sns.Topic(this, "NewImageTopic", {
         displayName: "New Image topic",
       }); 
+
+      
 
   // Lambda functions
 
@@ -54,6 +57,9 @@ export class EDAAppStack extends cdk.Stack {
       entry: `${__dirname}/../lambdas/processImage.ts`,
       timeout: cdk.Duration.seconds(15),
       memorySize: 128,
+      environment: {
+        DYNAMODB_TABLE_NAME: imageTable.tableName
+      }
     }
   );
 
@@ -64,15 +70,6 @@ export class EDAAppStack extends cdk.Stack {
     entry: `${__dirname}/../lambdas/mailer.ts`,
   });
 
-  const logImageFn = new lambdanode.NodejsFunction(this, "LogImageFn", {
-    runtime: lambda.Runtime.NODEJS_18_X,
-    entry: `${__dirname}/../lambdas/logImage.ts`,
-    timeout: cdk.Duration.seconds(15),
-    memorySize: 128,
-    environment: {
-      DYNAMODB_TABLE_NAME: imageTable.tableName,
-    },
-  });
 
   // S3 --> SQS
   imagesBucket.addEventNotification(
@@ -84,35 +81,27 @@ newImageTopic.addSubscription(
   new subs.SqsSubscription(imageProcessQueue)
 );
 
-newImageTopic.addSubscription(new subs.SqsSubscription(mailerQ));
 
- // SQS --> Lambda
-  const newImageEventSource = new events.SqsEventSource(imageProcessQueue, {
-    batchSize: 5,
-    maxBatchingWindow: cdk.Duration.seconds(5),
-  });
 
-  const newImageMailEventSource = new events.SqsEventSource(mailerQ, {
-    batchSize: 5,
-    maxBatchingWindow: cdk.Duration.seconds(5),
-  }); 
 
-  const logImageEventSource = new events.SqsEventSource(imageProcessQueue, {
-    batchSize: 5,
-    maxBatchingWindow: cdk.Duration.seconds(5),
-  });
+// SQS --> Lambda
+const newImageEventSource = new events.SqsEventSource(imageProcessQueue, {
+  batchSize: 5,
+  maxBatchingWindow: cdk.Duration.seconds(5),
+});
 
-  processImageFn.addEventSource(newImageEventSource);
+processImageFn.addEventSource(newImageEventSource);
 
-  mailerFn.addEventSource(newImageMailEventSource);
 
-  logImageFn.addEventSource(logImageEventSource);
+newImageTopic.addSubscription(
+  new subs.LambdaSubscription(mailerFn)
+)
 
   // Permissions
 
   imagesBucket.grantRead(processImageFn);
-
-  imageTable.grantReadWriteData(logImageFn)
+  
+  imageTable.grantReadWriteData(processImageFn)
 
   mailerFn.addToRolePolicy(
     new iam.PolicyStatement({

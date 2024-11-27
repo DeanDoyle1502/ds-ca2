@@ -1,5 +1,6 @@
 /* eslint-disable import/extensions, import/no-absolute-path */
 import { SQSHandler } from "aws-lambda";
+import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
 import {
   GetObjectCommand,
   PutObjectCommandInput,
@@ -9,6 +10,8 @@ import {
 } from "@aws-sdk/client-s3";
 
 const s3 = new S3Client();
+const dynamoDb = new DynamoDBClient({});
+const DYNAMODB_TABLE_NAME = process.env.DYNAMODB_TABLE_NAME!;
 
 export const handler: SQSHandler = async (event) => {
   console.log("Event recieved ", JSON.stringify(event, null, 2));
@@ -24,6 +27,26 @@ export const handler: SQSHandler = async (event) => {
         // Object key may have spaces or unicode non-ASCII characters.
         const srcKey = decodeURIComponent(s3e.object.key.replace(/\+/g, " "));
         let origimage = null;
+         // Validate file type
+    if (!srcKey.endsWith("jpeg") && !srcKey.endsWith("png")) {
+      console.error(`Unsupported file type: ${srcKey}`);
+      throw new Error(`Invalid file type: ${srcKey}`);
+    }
+
+       // Log valid file to DynamoDB
+       try {
+        const logParams = {
+          TableName: DYNAMODB_TABLE_NAME,
+          Item: {
+            fileName: { S: srcKey },
+          },
+        };
+        await dynamoDb.send(new PutItemCommand(logParams));
+        console.log(`Logged file ${srcKey} to DynamoDB`);
+      } catch (error) {
+        console.error("Failed to log image to DynamoDB:", error);
+        throw error;
+      }
         try {
           // Download the image from the S3 source bucket.
           const params: GetObjectCommandInput = {
