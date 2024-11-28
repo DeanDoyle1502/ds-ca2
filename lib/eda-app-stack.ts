@@ -31,13 +31,13 @@ export class EDAAppStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
       // Integration infrastructure
-      const badImage = new sqs.Queue(this, "dead-image", {
+      const badImageQueue = new sqs.Queue(this, "dead-image", {
         retentionPeriod: cdk.Duration.seconds(60)
       });
 
       const imageProcessQueue = new sqs.Queue(this, "img-created-queue", {
         receiveMessageWaitTime: cdk.Duration.seconds(10),
-        deadLetterQueue: {queue:badImage, maxReceiveCount:1}
+        deadLetterQueue: {queue:badImageQueue, maxReceiveCount:1}
       });
       
 
@@ -70,16 +70,33 @@ export class EDAAppStack extends cdk.Stack {
     entry: `${__dirname}/../lambdas/mailer.ts`,
   });
 
+  const rejectionMailerFn = new lambdanode.NodejsFunction(this, "rejection-mailer-function", {
+  runtime: lambda.Runtime.NODEJS_16_X,
+    memorySize: 1024,
+    timeout: cdk.Duration.seconds(3),
+    entry: `${__dirname}/../lambdas/rejectionMailer.ts`,
+  });
+
 
   // S3 --> SQS
   imagesBucket.addEventNotification(
     s3.EventType.OBJECT_CREATED,
-    new s3n.SnsDestination(newImageTopic)  // Changed
+    new s3n.SnsDestination(newImageTopic)  
 );
 
 newImageTopic.addSubscription(
   new subs.SqsSubscription(imageProcessQueue)
 );
+
+newImageTopic.addSubscription(
+  new subs.LambdaSubscription(mailerFn)
+)
+
+newImageTopic.addSubscription(
+  new subs.LambdaSubscription(rejectionMailerFn)
+)
+
+
 
 
 
@@ -90,17 +107,23 @@ const newImageEventSource = new events.SqsEventSource(imageProcessQueue, {
   maxBatchingWindow: cdk.Duration.seconds(5),
 });
 
+const badImageEventSource = new events.SqsEventSource(badImageQueue, {
+  batchSize: 5,
+  maxBatchingWindow: cdk.Duration.seconds(5),
+});
+
+
+
 processImageFn.addEventSource(newImageEventSource);
 
+rejectionMailerFn.addEventSource(badImageEventSource);
 
-newImageTopic.addSubscription(
-  new subs.LambdaSubscription(mailerFn)
-)
+
 
   // Permissions
 
   imagesBucket.grantRead(processImageFn);
-  
+  badImageQueue.grantConsumeMessages(rejectionMailerFn)
   imageTable.grantReadWriteData(processImageFn)
 
   mailerFn.addToRolePolicy(
@@ -114,6 +137,19 @@ newImageTopic.addSubscription(
       resources: ["*"],
     })
   );
+
+  rejectionMailerFn.addToRolePolicy(
+    new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        "ses:SendEmail",
+        "ses:SendRawEmail",
+        "ses:SendTemplatedEmail",
+      ],
+      resources: ["*"],
+    })
+  );
+  
     
 
     // Output

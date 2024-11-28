@@ -1,4 +1,4 @@
-import { SNSHandler } from "aws-lambda";
+import { SQSHandler } from "aws-lambda";
 import { SES_EMAIL_FROM, SES_EMAIL_TO, SES_REGION } from "../env";
 import {
   SESClient,
@@ -20,15 +20,25 @@ type ContactDetails = {
 
 const client = new SESClient({ region: SES_REGION});
 
-export const handler: SNSHandler = async (event: any) => {
+export const handler: SQSHandler = async (event: any) => {
   console.log("Event ", JSON.stringify(event, null, 2));
   for (const record of event.Records) {
-   
-    const snsMessage = JSON.parse(record.Sns.Message);
+    let recordBody: any;
+    let snsMessage: any;
 
-    if (snsMessage.Records) {
-        
-      console.log("Record message ", JSON.stringify(snsMessage, null, 2));
+    try {
+        // Parse the SQS record body
+        recordBody = JSON.parse(record.body);
+        console.log("Parsed SQS record body:", JSON.stringify(recordBody, null, 2));
+  
+        // Parse the SNS message
+        snsMessage = JSON.parse(recordBody.Message);
+        console.log("Parsed SNS message:", JSON.stringify(snsMessage, null, 2));
+      } catch (error) {
+        console.error("Failed to parse record body or SNS message:", error);
+        continue; // Skip this record and move to the next
+      }
+
       for (const messageRecord of snsMessage.Records) {
 
         const s3e = messageRecord.s3;
@@ -39,7 +49,7 @@ export const handler: SNSHandler = async (event: any) => {
           const { name, email, message }: ContactDetails = {
             name: "The Photo Album",
             email: SES_EMAIL_FROM,
-            message: `We received your Image. Its URL is s3://${srcBucket}/${srcKey}`,
+            message: `We received your Image but it was rejected. Its URL is s3://${srcBucket}/${srcKey}`,
           };
           const params = sendEmailParams({ name, email, message });
           await client.send(new SendEmailCommand(params));
@@ -50,7 +60,7 @@ export const handler: SNSHandler = async (event: any) => {
       }
     }
   }
-};
+
 
 function sendEmailParams({ name, email, message }: ContactDetails) {
   const parameters: SendEmailCommandInput = {
