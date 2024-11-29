@@ -8,10 +8,14 @@ import {
   S3Client,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
+import { SNSClient, PublishCommand } from "@aws-sdk/client-sns"
 
-const s3 = new S3Client();
-const dynamoDb = new DynamoDBClient({});
-const DYNAMODB_TABLE_NAME = process.env.DYNAMODB_TABLE_NAME!;
+// const s3 = new S3Client();
+// const dynamoDb = new DynamoDBClient({});
+// const DYNAMODB_TABLE_NAME = process.env.DYNAMODB_TABLE_NAME!;
+
+const sns = new SNSClient({});
+const VALID_IMAGE_TOPIC_ARN = process.env.VALID_IMAGE_TOPIC_ARN!;
 
 export const handler: SQSHandler = async (event) => {
   console.log("Event recieved ", JSON.stringify(event, null, 2));
@@ -24,40 +28,29 @@ export const handler: SQSHandler = async (event) => {
       for (const messageRecord of snsMessage.Records) {
         const s3e = messageRecord.s3;
         const srcBucket = s3e.bucket.name;
-        // Object key may have spaces or unicode non-ASCII characters.
+        
         const srcKey = decodeURIComponent(s3e.object.key.replace(/\+/g, " "));
         let origimage = null;
-         // Validate file type
-    if (!srcKey.endsWith("jpeg") && !srcKey.endsWith("png")) {
-      console.error(`Unsupported file type: ${srcKey}`);
-      throw new Error(`Invalid file type: ${srcKey}`);
-    }
-
-       // Log valid file to DynamoDB
-       try {
-        const logParams = {
-          TableName: DYNAMODB_TABLE_NAME,
-          Item: {
-            fileName: { S: srcKey },
-          },
-        };
-        await dynamoDb.send(new PutItemCommand(logParams));
-        console.log(`Logged file ${srcKey} to DynamoDB`);
-      } catch (error) {
-        console.error("Failed to log image to DynamoDB:", error);
-        throw error;
-      }
-        try {
-          // Download the image from the S3 source bucket.
-          const params: GetObjectCommandInput = {
-            Bucket: srcBucket,
-            Key: srcKey,
-          };
-          origimage = await s3.send(new GetObjectCommand(params));
-          // Process the image ......
-        } catch (error) {
-          console.log(error);
+        
+        if (srcKey.endsWith("jpeg") || srcKey.endsWith("png")) {
+          try {
+            // Publish valid image details to SNS
+            const params = {
+              TopicArn: VALID_IMAGE_TOPIC_ARN,
+              Message: JSON.stringify({ srcKey }),
+            };
+            await sns.send(new PublishCommand(params));
+            console.log(`Published valid image ${srcKey} to SNS topic`);
+          } catch (error) {
+            console.error("Failed to publish to SNS:", error);
+            throw error;
+          }
+        } else {
+          console.error(`Unsupported file type: ${srcKey}`);
+          throw new Error(`Invalid file type: ${srcKey}`);
         }
+
+    
       }
     }
   }

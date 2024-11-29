@@ -43,7 +43,11 @@ export class EDAAppStack extends cdk.Stack {
 
       const newImageTopic = new sns.Topic(this, "NewImageTopic", {
         displayName: "New Image topic",
-      }); 
+      });
+      
+      const validImageTopic = new sns.Topic(this, "ValidImageTopic", {
+        displayName: "Valid Image Topic",
+      });
 
       
 
@@ -77,8 +81,19 @@ export class EDAAppStack extends cdk.Stack {
     entry: `${__dirname}/../lambdas/rejectionMailer.ts`,
   });
 
+  const logImageFn = new lambdanode.NodejsFunction(this, "LogImageFn", {
+    runtime: lambda.Runtime.NODEJS_18_X,
+    entry: `${__dirname}/../lambdas/logImage.ts`,
+    timeout: cdk.Duration.seconds(10),
+    memorySize: 128,
+    environment: {
+      DYNAMODB_TABLE_NAME: imageTable.tableName,
+    },
+  });
 
-  // S3 --> SQS
+
+
+
   imagesBucket.addEventNotification(
     s3.EventType.OBJECT_CREATED,
     new s3n.SnsDestination(newImageTopic)  
@@ -96,12 +111,14 @@ newImageTopic.addSubscription(
   new subs.LambdaSubscription(rejectionMailerFn)
 )
 
+validImageTopic.addSubscription(new subs.LambdaSubscription(logImageFn))
 
 
 
 
 
-// SQS --> Lambda
+
+
 const newImageEventSource = new events.SqsEventSource(imageProcessQueue, {
   batchSize: 5,
   maxBatchingWindow: cdk.Duration.seconds(5),
@@ -118,6 +135,9 @@ processImageFn.addEventSource(newImageEventSource);
 
 rejectionMailerFn.addEventSource(badImageEventSource);
 
+processImageFn.addEnvironment("VALID_IMAGE_TOPIC_ARN", validImageTopic.topicArn)
+validImageTopic.grantPublish(processImageFn)
+
 
 
   // Permissions
@@ -125,6 +145,7 @@ rejectionMailerFn.addEventSource(badImageEventSource);
   imagesBucket.grantRead(processImageFn);
   badImageQueue.grantConsumeMessages(rejectionMailerFn)
   imageTable.grantReadWriteData(processImageFn)
+  imageTable.grantReadWriteData(logImageFn)
 
   mailerFn.addToRolePolicy(
     new iam.PolicyStatement({
