@@ -49,6 +49,10 @@ export class EDAAppStack extends cdk.Stack {
         displayName: "Valid Image Topic",
       });
 
+      const metadataQueue = new sqs.Queue(this, "MetadataQueue", {
+        retentionPeriod: cdk.Duration.days(1),
+      });
+
       
 
   // Lambda functions
@@ -91,6 +95,16 @@ export class EDAAppStack extends cdk.Stack {
     },
   });
 
+  const updateTableLambda = new lambdanode.NodejsFunction(this, "UpdateTableLambda", {
+    runtime: lambda.Runtime.NODEJS_18_X,
+    memorySize: 128,
+    timeout: cdk.Duration.seconds(10),
+    entry: `${__dirname}/../lambdas/updateTable.ts`,
+    environment: {
+      DYNAMODB_TABLE_NAME: imageTable.tableName,
+    },
+  });
+
 
 
 
@@ -113,7 +127,7 @@ newImageTopic.addSubscription(
 
 validImageTopic.addSubscription(new subs.LambdaSubscription(logImageFn))
 
-
+newImageTopic.addSubscription( new subs.LambdaSubscription(updateTableLambda))
 
 
 
@@ -129,6 +143,9 @@ const badImageEventSource = new events.SqsEventSource(badImageQueue, {
   maxBatchingWindow: cdk.Duration.seconds(5),
 });
 
+updateTableLambda.addEventSource(new events.SqsEventSource(metadataQueue));
+
+
 
 
 processImageFn.addEventSource(newImageEventSource);
@@ -136,16 +153,20 @@ processImageFn.addEventSource(newImageEventSource);
 rejectionMailerFn.addEventSource(badImageEventSource);
 
 processImageFn.addEnvironment("VALID_IMAGE_TOPIC_ARN", validImageTopic.topicArn)
+
+
+
+// Permissions
+
+imagesBucket.grantRead(processImageFn);
+
+imageTable.grantReadWriteData(processImageFn)
+imageTable.grantReadWriteData(logImageFn)
+imageTable.grantWriteData(updateTableLambda);
+
+badImageQueue.grantConsumeMessages(rejectionMailerFn)
 validImageTopic.grantPublish(processImageFn)
-
-
-
-  // Permissions
-
-  imagesBucket.grantRead(processImageFn);
-  badImageQueue.grantConsumeMessages(rejectionMailerFn)
-  imageTable.grantReadWriteData(processImageFn)
-  imageTable.grantReadWriteData(logImageFn)
+metadataQueue.grantConsumeMessages(updateTableLambda);
 
   mailerFn.addToRolePolicy(
     new iam.PolicyStatement({
