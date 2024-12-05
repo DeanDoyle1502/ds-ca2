@@ -55,7 +55,7 @@ export const handler: SQSHandler = async (event: any) => {
           await client.send(new SendEmailCommand(params));
         } catch (error: unknown) {
           console.log("ERROR is: ", error);
-          // return;
+         
         }
       }
     }

@@ -6,6 +6,7 @@ import {
   SendEmailCommandInput,
 } from "@aws-sdk/client-ses";
 
+
 if (!SES_EMAIL_TO || !SES_EMAIL_FROM || !SES_REGION) {
   throw new Error(
     "Please add the SES_EMAIL_TO, SES_EMAIL_FROM and SES_REGION environment variables in an env.js file located in the root directory"
@@ -45,7 +46,7 @@ export const handler: SNSHandler = async (event: any) => {
           await client.send(new SendEmailCommand(params));
         } catch (error: unknown) {
           console.log("ERROR is: ", error);
-          // return;
+         
         }
       }
     }

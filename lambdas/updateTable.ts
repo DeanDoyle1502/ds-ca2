@@ -1,7 +1,7 @@
 import { DynamoDBClient, ReturnValue, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { UpdateCommandInput } from "@aws-sdk/lib-dynamodb";
-import { Values } from "aws-cdk-lib/aws-cloudwatch";
+
 
 
 const DYNAMODB_TABLE_NAME = process.env.DYNAMODB_TABLE_NAME!;

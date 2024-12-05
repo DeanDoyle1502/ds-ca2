@@ -108,10 +108,16 @@ export class EDAAppStack extends cdk.Stack {
 
 
 
-  imagesBucket.addEventNotification(
+imagesBucket.addEventNotification(
     s3.EventType.OBJECT_CREATED,
     new s3n.SnsDestination(newImageTopic)  
 );
+
+imagesBucket.addEventNotification(
+  s3.EventType.OBJECT_REMOVED,
+  new s3n.SnsDestination(newImageTopic)
+)
+
 
 newImageTopic.addSubscription(
   new subs.SqsSubscription(imageProcessQueue)
@@ -160,12 +166,13 @@ processImageFn.addEnvironment("VALID_IMAGE_TOPIC_ARN", validImageTopic.topicArn)
 
 imagesBucket.grantRead(processImageFn);
 
-imageTable.grantReadWriteData(processImageFn)
-imageTable.grantReadWriteData(logImageFn)
+imageTable.grantReadWriteData(processImageFn);
+imageTable.grantReadWriteData(logImageFn);
 imageTable.grantWriteData(updateTableLambda);
 
-badImageQueue.grantConsumeMessages(rejectionMailerFn)
-validImageTopic.grantPublish(processImageFn)
+
+badImageQueue.grantConsumeMessages(rejectionMailerFn);
+validImageTopic.grantPublish(processImageFn);
 metadataQueue.grantConsumeMessages(updateTableLambda);
 
   mailerFn.addToRolePolicy(
